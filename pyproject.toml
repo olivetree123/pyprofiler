@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "pyprofiler"
+version = "0.1.0"
+description = ""
+authors = ["gaojian <olivetree123@163.com>"]
+readme = "README.md"
+license = "MIT"
+homepage = "https://github.com/olivetree123/pyprofiler"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+cachetools = "^5.5.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

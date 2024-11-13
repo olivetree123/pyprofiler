@@ -1,0 +1,1 @@
+from pyprofiler.main import PyProfiler
