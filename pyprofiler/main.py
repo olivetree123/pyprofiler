@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 import threading
@@ -15,7 +16,7 @@ class Function(object):
         self.code = code
         self.lineno = lineno
         self.filepath = filepath
-    
+
     def equals(self, func):
         if self.code == func.code:
             return True
@@ -43,6 +44,8 @@ class LogFile(object):
         self.target_func = target_func
         self.data = LRUCache(maxsize=10000)
         self.functions = LRUCache(maxsize=10000)
+        self.max_commit_lines = int(os.environ.get("PYPROFILER_MAX_COMMIT_LINES", 1000))
+        self.total_commit_lines = 0
 
     @classmethod
     def init_instance(cls, log_path, target_func: Function = None):
@@ -67,7 +70,8 @@ class LogFile(object):
             return
         t = time.time()
         self.functions[thread_id][func.code] = {"start_time": t}
-        line = "\n" if not self.target_func or self.target_func.equals(func) else ""
+        line = "\n" if not self.target_func or self.target_func.equals(
+            func) else ""
         line = line + f"{int(t*1000)}  call   [{func.name}] on line:{func.lineno} of {func.filepath}\n"
         self.data[thread_id].append(line)
 
@@ -78,8 +82,7 @@ class LogFile(object):
         if self.target_func and self.target_func.equals(func):
             self.data[thread_id].append(
                 f"{int(time.time()*1000)}  line   [{func.name}] "
-                f"on line:{func.lineno} of {func.filepath}\n"
-            )
+                f"on line:{func.lineno} of {func.filepath}\n")
 
     def return_func(self, func: Function):
         thread_id = threading.current_thread().ident
@@ -89,8 +92,7 @@ class LogFile(object):
         coast_time = t - self.functions[thread_id][func.code]["start_time"]
         self.data[thread_id].append(
             f"{int(t*1000)}  return [{func.name}] on line:{func.lineno} "
-            f"of {func.filepath} totally {coast_time*1000} ms coast\n"
-        )
+            f"of {func.filepath} totally {coast_time*1000} ms coast\n")
 
     def append(self, content: str):
         thread_id = threading.current_thread().ident
@@ -102,10 +104,14 @@ class LogFile(object):
         thread_id = threading.current_thread().ident
         if thread_id not in self.data:
             return
+        self.functions.pop(thread_id)
+        lines = self.data.pop(thread_id)
+        if self.total_commit_lines > self.max_commit_lines:
+            return
         with threading.Lock():
             with open(self.log_path, "a+") as f:
-                f.writelines(self.data.pop(thread_id))
-        self.functions.pop(thread_id)
+                f.writelines(lines)
+        self.total_commit_lines += len(lines)
 
     def clean(self):
         thread_id = threading.current_thread().ident
@@ -119,21 +125,24 @@ def trace_calls(frame, event, arg):
     if event == "call":
         func = Function(name=frame.f_code.co_name,
                         filepath=frame.f_code.co_filename,
-                        code=frame.f_code.co_code)
+                        code=frame.f_code.co_code,
+                        lineno=frame.f_lineno)
         LogFile.get_instance().call_func(func=func)
         return trace_calls
 
     if event == "line":
         func = Function(name=frame.f_code.co_name,
                         filepath=frame.f_code.co_filename,
-                        code=frame.f_code.co_code)
+                        code=frame.f_code.co_code,
+                        lineno=frame.f_lineno)
         LogFile.get_instance().run_line(func=func)
         return trace_calls
 
     if event == "return":
         func = Function(name=frame.f_code.co_name,
                         filepath=frame.f_code.co_filename,
-                        code=frame.f_code.co_code)
+                        code=frame.f_code.co_code,
+                        lineno=frame.f_lineno)
         LogFile.get_instance().return_func(func=func)
         return trace_calls
 
@@ -198,3 +207,16 @@ class PyProfiler(object):
     #     """关闭全局性能分析
     #     """
     #     sys.settrace(None)
+
+
+def profiler(func):
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        pyprofiler = PyProfiler(name=func.__name__,
+                                filepath=func.__code__.co_filename,
+                                lineno=func.__code__.co_firstlineno)
+        result = pyprofiler(func)(*args, **kwargs)
+        return result
+
+    return wrapper

@@ -1,10 +1,5 @@
 # pyprofiler
 
-### 安装
-```
-pip install pyprofiler
-```
-
 
 ### 使用
 ```python
